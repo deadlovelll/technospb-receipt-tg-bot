@@ -1,13 +1,18 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CallbackContext
+from button_handlers import *
+import asyncio
+from logger import LoggerConfig
 
-# Enable logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+# Instantiate LoggerConfig to configure logging
+logger_config = LoggerConfig()
+logger = logger_config.get_logger()
+
+# Example usage of the logger
+logger.info('This is an informational message')
+logger.warning('This is a warning message')
+logger.error('This is an error message')
 
 # Define constants for command states
 ADDING_ITEMS, FINISHED = range(2)
@@ -15,7 +20,6 @@ ADDING_ITEMS, FINISHED = range(2)
 # Inline keyboard buttons
 keyboard = [
     [InlineKeyboardButton("Новый заказ", callback_data='new_order')],
-    [InlineKeyboardButton("Список заказов", callback_data='order_list')]
 ]
 
 async def start(update: Update, context: CallbackContext) -> None:
@@ -23,13 +27,12 @@ async def start(update: Update, context: CallbackContext) -> None:
     context.user_data['state'] = ADDING_ITEMS
     keyboard = [
         [InlineKeyboardButton("Новый заказ", callback_data='new_order')],
-        [InlineKeyboardButton("Список заказов", callback_data='order_list')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.message:
         await update.message.reply_text(
-            "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
+            "Привет! Я помогу тебе создать PDF с чеком.",
             reply_markup=reply_markup
         )
     else:
@@ -42,76 +45,32 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
 
     if query.data == 'new_order':
         
-        context.user_data['items'] = []
-        context.user_data['state'] = ADDING_ITEMS
-        keyboard = [
-            [InlineKeyboardButton("Отменить заказ", callback_data='cancel_order')]
-        ]
+        await NewOrderHandler.new_order(update, context, query, ADDING_ITEMS)
         
-        reply_markup = InlineKeyboardMarkup(keyboard)
+    elif query.data == 'edit_item':
         
-        await query.edit_message_text(
-            "Введите данные о позиции в формате:\n"
-            "Nº, Товар, Кол-во, Ед., Цена, Сумма\n"
-            "Например:\n"
-            "1, Asus ROG Strix, 1, Шт., 1200.00, 1200.00\n",
-            reply_markup=reply_markup
-        )
+        pass
 
     elif query.data == 'add_next_item':
-        context.user_data['state'] = ADDING_ITEMS
-
-        await query.edit_message_text(
-            "Позиция Успешно Добавлена ✅\n\n"
-            "Введите данные о следующей позиции в формате:\n"
-            "Nº, Товар, Кол-во, Ед., Цена, Сумма\n"
-            "Например:\n"
-            "1, Asus ROG Strix, 1, Шт., 1200.00, 1200.00\n"
-        )
+        
+        await AddNextItemHandler.add_next_item(context, query, ADDING_ITEMS)
+        
+    elif query.data == 'check_receipt':
+        
+        await CheckReceiptHandler.check_receipt(update, context, ADDING_ITEMS, FINISHED)
+        
+    elif query.data == 'back':
+        
+        await CheckReceiptHandler.back(update, context, ADDING_ITEMS)
 
     elif query.data == 'finish_receipt':
-        if context.user_data.get('state') == ADDING_ITEMS:
         
-            context.user_data['state'] = FINISHED
-            items = context.user_data.get('items', [])
-            if not items:
-                await update.callback_query.edit_message_text("Вы не добавили ни одной позиции.")
-                return
-
-            total_amount = sum(item['Сумма'] for item in items)
-            discount = 66.90  # Пример фиксированной скидки
-            final_total = total_amount - discount
-
-            # Создание PDF должно происходить здесь
-            # ReceiptCreator.create_pdf("check113.pdf", items, total_amount, discount, final_total)
-
-            # Собираем всю информацию в одно сообщение
-            order_summary = "Чек создан. Ваш заказ:\n\n"
-            for item in items:
-                order_summary += f"{item['Nº']}, {item['Товар']}, {item['Кол-во']}, {item['Ед.']}, {item['Цена']}, {item['Сумма']}\n"
-            order_summary += f"\nВсего: {total_amount:.2f} ₽\nСкидка: {discount:.2f} ₽\nИтого: {final_total:.2f} ₽"
-
-            await update.callback_query.edit_message_text(order_summary)
-        else:
-            await update.callback_query.edit_message_text("Используйте команду /start для начала добавления позиций.")
-
-    elif query.data == 'order_list':
-        items = context.user_data.get('items', [])
-        if not items:
-            await query.edit_message_text("Вы не добавили ни одной позиции.")
-        else:
-            order_summary = "Ваш заказ:\n\n"
-            for item in items:
-                order_summary += f"{item['Nº']}, {item['Товар']}, {item['Кол-во']}, {item['Ед.']}, {item['Цена']}, {item['Сумма']}\n"
-            await query.edit_message_text(order_summary)
+        await FinishReceiptHandler.finish_receipt(context, update, ADDING_ITEMS, FINISHED)
             
     elif query.data == 'cancel_order':
-        await return_to_main_menu(update, context)
-
-async def return_to_main_menu(update: Update, context: CallbackContext) -> None:
-    context.user_data.clear()  # Очищаем пользовательские данные
-    await start(update, context)  # Вызываем функцию старта
-
+        
+        await CancelOrderHandler.return_to_main_menu(update, context, keyboard)
+        
 async def handle_order(update: Update, context: CallbackContext) -> None:
     if context.user_data.get('state') == ADDING_ITEMS:
         try:
@@ -135,18 +94,24 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
                 f"Ед.: {item['Ед.']}\n"
                 f"Цена: {item['Цена']:.2f}₽\n"
                 f"Сумма: {item['Сумма']:.2f}₽\n\n"
-                "Чтобы добавить следующую позицию, надмите на соответствующую кнопку."
+                "Чтобы добавить следующую позицию, нажмите на соответствующую кнопку."
             )
             
-            # Создаем клавиатуру с двумя кнопками
+            # Удаление сообщения через 1-2 секунды
+            await asyncio.sleep(1)
+            await context.bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
+            
+            # Создаем клавиатуру с кнопками
             keyboard = [
-                [InlineKeyboardButton("Завершить оформление чека 🧾", callback_data='finish_receipt')],
-                [InlineKeyboardButton("Посмотреть Чек 🔎", callback_data='check_receipt')],
+                [InlineKeyboardButton("Следующая Позиция ⏭️", callback_data='add_next_item')],
                 [InlineKeyboardButton("Редактировать Позицию 📝", callback_data='edit_position')],
-                [InlineKeyboardButton("Следующая Позиция ⏭️", callback_data='add_next_item')]
+                [InlineKeyboardButton("Посмотреть Чек 🔎", callback_data='check_receipt')],
+                [InlineKeyboardButton("Завершить оформление чека 🧾", callback_data='finish_receipt')],
+                [InlineKeyboardButton("Отменить заказ ❌", callback_data='cancel_order')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Отправляем сообщение о добавлении позиции
             await update.message.reply_text(
                 message_text,
                 reply_markup=reply_markup
