@@ -17,17 +17,22 @@ class NewOrderHandler:
         
         await query.edit_message_text(
             "Введите данные о позиции в формате:\n"
-            "Nº, Товар, Кол-во, Ед., Цена, Сумма\n"
+            "Товар, Кол-во, Цена,\n"
             "Например:\n"
-            "1, Asus ROG Strix, 1, Шт., 1200.00, 1200.00\n",
+            "Asus ROG Strix, 1, 1200.00\n",
             reply_markup=reply_markup
         )
         
 class AddNextItemHandler:
     
     @staticmethod
-    async def add_next_item(context: CallbackContext, query, ADDING_ITEMS):
+    async def add_next_item(context: CallbackContext, query, update, ADDING_ITEMS):
         context.user_data['state'] = ADDING_ITEMS
+        
+        # Удаление всех сообщений с текстом "Пожалуйста, выберите одно из предложенных действий 🙏"
+        async for message in context.bot.get_chat_history(chat_id=update.effective_chat.id):
+            if message.text == "Пожалуйста, выберите одно из предложенных действий 🙏":
+                await message.delete()
 
         await query.edit_message_text(
             "Позиция Успешно Добавлена ✅\n\n"
@@ -36,7 +41,6 @@ class AddNextItemHandler:
             "Например:\n"
             "1, Asus ROG Strix, 1, Шт., 1200.00, 1200.00\n"
         )
-        
         
 class FinishReceiptHandler:
     
@@ -151,32 +155,73 @@ class CheckReceiptHandler:
 class ItemEdition:
     
     @staticmethod
-    async def item_edit(update: Update, context: CallbackContext) -> None:
+    async def item_edit(update: Update, context: CallbackContext, EDITING_ITEMS) -> None:
+        context.user_data['state'] = EDITING_ITEMS
         query = update.callback_query
         await query.answer()
         
-        print(query)
-
         try:
-            # Extract item index from callback data
-            item_index = int(query.data.split('_')[-1])
-            items = context.user_data.get('items', [])
+            # Access the Message object from the CallbackQuery
+            message = query.message
+            
+            # Extract item details from the text of the message
+            item_text = message.text
+            parts = item_text.split('\n')
+            item = {
+                'Nº': int(parts[1].split(': ')[1]),
+                'Товар': parts[2].split(': ')[1],
+                'Кол-во': int(parts[3].split(': ')[1]),
+                'Ед.': parts[4].split(': ')[1],
+                'Цена': float(parts[5].split(': ')[1].replace('₽', '').strip()),
+                'Сумма': float(parts[6].split(': ')[1].replace('₽', '').strip())
+            }
+            
+            # Prepare inline keyboard to edit item details
+            keyboard = [
+                [InlineKeyboardButton(f"Изменить Товар ({item['Товар']})", callback_data='edit_name')],
+                [InlineKeyboardButton(f"Изменить Кол-во ({item['Кол-во']})", callback_data='edit_qty')],
+                [InlineKeyboardButton(f"Изменить Цена ({item['Цена']:.2f}₽)", callback_data='edit_price')],
+                [InlineKeyboardButton("Готово", callback_data='done_edit')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Send message with inline keyboard for editing
+            await query.message.reply_text(
+                "Выберите поле для редактирования:",
+                reply_markup=reply_markup
+            )
+            
+            # Store the item data in user_data for further processing
+            context.user_data['edit_item'] = item
+            
+        except Exception as e:
+            print(f"Error in item_edit: {e}")
+            await query.message.reply_text("Произошла ошибка при редактировании позиции.")
+            
+    
+    @staticmethod
+    async def edit_name(update: Update, context: CallbackContext) -> None:
+        await update.callback_query.answer()
+        # Отправляем сообщение для ввода нового названия товара
+        await update.callback_query.message.reply_text("Введите новое название товара:")
 
-            if item_index < len(items):
-                item = items[item_index]
-                edit_message = (
-                    f"Редактирование позиции:\n"
-                    f"Товар: {item['Товар']}\n"
-                    f"Количество: {item['Кол-во']}\n"
-                    f"Единица измерения: {item['Ед.']}\n"
-                    f"Цена: {item['Цена']}\n"
-                    f"Сумма: {item['Сумма']}\n"
-                    "\nВведите новые данные в формате:\n"
-                    "Товар, Количество, Единица измерения, Цена"
-                )
-                context.user_data['editing_item_index'] = item_index
-                await query.message.reply_text(edit_message)
-            else:
-                await query.message.reply_text("Неверный индекс позиции.")
-        except (IndexError, ValueError):
-            await query.message.reply_text("Ошибка в обработке команды редактирования.")
+        # Устанавливаем состояние редактирования названия товара
+        context.user_data['edit_action'] = 'edit_name'
+        context.user_data['edit_message_id'] = update.callback_query.message.message_id
+    
+    
+    @staticmethod
+    async def edit_qty():
+        pass
+    
+    
+    @staticmethod
+    async def edit_price():
+        pass
+    
+    @staticmethod
+    async def done_edit():
+        pass
+
+
+

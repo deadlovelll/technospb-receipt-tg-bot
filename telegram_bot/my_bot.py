@@ -15,7 +15,7 @@ logger.warning('This is a warning message')
 logger.error('This is an error message')
 
 # Define constants for command states
-ADDING_ITEMS, FINISHED = range(2)
+START, ADDING_ITEMS, CHOOSING_NEXT, EDITING_ITEMS, FINISHED = range(5)
 
 # Inline keyboard buttons
 keyboard = [
@@ -24,7 +24,7 @@ keyboard = [
 
 async def start(update: Update, context: CallbackContext) -> None:
     context.user_data['items'] = []
-    context.user_data['state'] = ADDING_ITEMS
+    context.user_data['state'] = START
     keyboard = [
         [InlineKeyboardButton("Новый заказ", callback_data='new_order')],
     ]
@@ -37,6 +37,27 @@ async def start(update: Update, context: CallbackContext) -> None:
         )
     else:
         logger.warning("Пустое обновление в функции start")
+        
+async def restart(update: Update, context: CallbackContext) -> None:
+    # Clear user_data to reset bot state for this user
+    context.user_data.clear()
+    
+    # Determine the message to edit based on update type
+    if update.callback_query:
+        # If the update is a callback query, edit the message associated with it
+        query = update.callback_query
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
+            reply_markup=reply_markup
+        )
+    elif update.message:
+        # If the update is a regular message, reply with the restart message and keyboard
+        await update.message.reply_text(
+            "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def button_handler(update: Update, context: CallbackContext) -> None:
     
@@ -49,11 +70,15 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
     elif query.data == 'edit_item':
         
-        await ItemEdition.item_edit(update, context)
+        await ItemEdition.item_edit(update, context, EDITING_ITEMS)
+        
+    elif query.data == 'edit_name':
+        
+        await ItemEdition.edit_name(update, context)
 
     elif query.data == 'add_next_item':
         
-        await AddNextItemHandler.add_next_item(context, query, ADDING_ITEMS)
+        await AddNextItemHandler.add_next_item(context, query, update, ADDING_ITEMS)
         
     elif query.data == 'check_receipt':
         
@@ -73,15 +98,21 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
 async def handle_order(update: Update, context: CallbackContext) -> None:
     if context.user_data.get('state') == ADDING_ITEMS:
+        
+        context.user_data['state'] = CHOOSING_NEXT
+        
         try:
+            
             parts = update.message.text.split(', ')
+            index = len(context.user_data.get('items', [])) + 1
+            
             item = {
-                "Nº": int(parts[0]),
-                "Товар": parts[1],
-                "Кол-во": int(parts[2]),
-                "Ед.": parts[3],
-                "Цена": float(parts[4]),
-                "Сумма": float(parts[5])
+                "Nº": index,
+                "Товар": parts[0],
+                "Кол-во": int(parts[1]),
+                "Ед.": 'Шт.',
+                "Цена": float(parts[2]),
+                "Сумма": float(parts[1])*float(parts[2])
             }
             context.user_data['items'].append(item)
             
@@ -119,17 +150,34 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             
         except Exception as e:
             await update.message.reply_text(f"Произошла ошибка при добавлении позиции: {str(e)}")
+            
+    elif context.user_data.get('state') == START:
+        
+        await update.message.reply_text('Пожалуйста, нажмите на кнопку "Новый Заказ" 🙏')
+        
+    elif context.user_data.get('state') == CHOOSING_NEXT:
+        
+        await update.message.reply_text('Пожалуйста, выберите одно из предложенных действий 🙏')
+        
+    # Обработка измененного названия товара
+    elif context.user_data.get('state') == EDITING_ITEMS:
+            
+        await update.message.reply_text('Пожалуйста, выберите данные для изменения или нажмите "Готово" ')
+        
     else:
+                
         await update.message.reply_text("Используйте команду /start для начала добавления позиций.")
 
 if __name__ == '__main__':
     application = ApplicationBuilder().token("7398191583:AAF2xkBbwcH0hsrBHsF0iEDgMt703u0ocO4").build()
 
     start_handler = CommandHandler('start', start)
+    restart_handler = CommandHandler('restart', restart)
     order_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, handle_order)
     button_handler = CallbackQueryHandler(button_handler)
 
     application.add_handler(start_handler)
+    application.add_handler(restart_handler)
     application.add_handler(order_handler)
     application.add_handler(button_handler)
 
