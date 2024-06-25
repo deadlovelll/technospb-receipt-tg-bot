@@ -147,3 +147,36 @@ class CheckReceiptHandler:
 
         else:
             await update.callback_query.answer("Нет текущего сообщения для удаления.")
+            
+class ItemEdition:
+    
+    @staticmethod
+    async def item_edit(update: Update, context: CallbackContext) -> None:
+        query = update.callback_query
+        await query.answer()
+        
+        print(query)
+
+        try:
+            # Extract item index from callback data
+            item_index = int(query.data.split('_')[-1])
+            items = context.user_data.get('items', [])
+
+            if item_index < len(items):
+                item = items[item_index]
+                edit_message = (
+                    f"Редактирование позиции:\n"
+                    f"Товар: {item['Товар']}\n"
+                    f"Количество: {item['Кол-во']}\n"
+                    f"Единица измерения: {item['Ед.']}\n"
+                    f"Цена: {item['Цена']}\n"
+                    f"Сумма: {item['Сумма']}\n"
+                    "\nВведите новые данные в формате:\n"
+                    "Товар, Количество, Единица измерения, Цена"
+                )
+                context.user_data['editing_item_index'] = item_index
+                await query.message.reply_text(edit_message)
+            else:
+                await query.message.reply_text("Неверный индекс позиции.")
+        except (IndexError, ValueError):
+            await query.message.reply_text("Ошибка в обработке команды редактирования.")

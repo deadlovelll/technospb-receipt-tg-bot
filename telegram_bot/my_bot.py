@@ -49,7 +49,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
     elif query.data == 'edit_item':
         
-        pass
+        await ItemEdition.item_edit(update, context)
 
     elif query.data == 'add_next_item':
         
@@ -104,7 +104,7 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             # Создаем клавиатуру с кнопками
             keyboard = [
                 [InlineKeyboardButton("Следующая Позиция ⏭️", callback_data='add_next_item')],
-                [InlineKeyboardButton("Редактировать Позицию 📝", callback_data='edit_position')],
+                [InlineKeyboardButton("Редактировать Позицию 📝", callback_data='edit_item')],
                 [InlineKeyboardButton("Посмотреть Чек 🔎", callback_data='check_receipt')],
                 [InlineKeyboardButton("Завершить оформление чека 🧾", callback_data='finish_receipt')],
                 [InlineKeyboardButton("Отменить заказ ❌", callback_data='cancel_order')]
