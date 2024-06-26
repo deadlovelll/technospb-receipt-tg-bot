@@ -31,10 +31,11 @@ async def start(update: Update, context: CallbackContext) -> None:
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.message:
-        await update.message.reply_text(
+        start_message = await update.message.reply_text(
             "Привет! Я помогу тебе создать PDF с чеком.",
             reply_markup=reply_markup
         )
+        context.user_data['edit_message_id'] = start_message.message_id
     else:
         logger.warning("Пустое обновление в функции start")
         
@@ -52,6 +53,7 @@ async def restart(update: Update, context: CallbackContext) -> None:
             "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
             reply_markup=reply_markup
         )
+        
     elif update.message:
         # If the update is a regular message, reply with the restart message and keyboard
         await update.message.reply_text(
@@ -74,7 +76,19 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
     elif query.data == 'edit_name':
         
-        await ItemEdition.edit_name(update, context)
+        await ItemEdition.edit_name(update, context, EDITING_ITEMS)
+        
+    elif query.data == 'edit_qty':
+        
+        await ItemEdition.edit_qty(update, context, EDITING_ITEMS)
+        
+    elif query.data == 'edit_price':
+        
+        await ItemEdition.edit_price(update, context, EDITING_ITEMS)
+        
+    elif query.data == 'done_edit':
+        
+        await ItemEdition.done_edit(update, context)
 
     elif query.data == 'add_next_item':
         
@@ -82,11 +96,11 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
     elif query.data == 'check_receipt':
         
-        await CheckReceiptHandler.check_receipt(update, context, ADDING_ITEMS, FINISHED)
+        await CheckReceiptHandler.check_receipt(update, context, CHOOSING_NEXT)
         
     elif query.data == 'back':
         
-        await CheckReceiptHandler.back(update, context, ADDING_ITEMS)
+        await CheckReceiptHandler.back(update, context, CHOOSING_NEXT)
 
     elif query.data == 'finish_receipt':
         
@@ -105,7 +119,6 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             
             parts = update.message.text.split(', ')
             index = len(context.user_data.get('items', [])) + 1
-            
             item = {
                 "Nº": index,
                 "Товар": parts[0],
@@ -128,10 +141,6 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
                 "Чтобы добавить следующую позицию, нажмите на соответствующую кнопку."
             )
             
-            # Удаление сообщения через 1-2 секунды
-            await asyncio.sleep(1)
-            await context.bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
-            
             # Создаем клавиатуру с кнопками
             keyboard = [
                 [InlineKeyboardButton("Следующая Позиция ⏭️", callback_data='add_next_item')],
@@ -142,27 +151,55 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Отправляем сообщение о добавлении позиции
-            await update.message.reply_text(
-                message_text,
-                reply_markup=reply_markup
+            # Send the message and capture the Message object
+            sent_message = await update.message.reply_text(
+            message_text,
+            reply_markup=reply_markup
             )
             
+            context.user_data['edit_message_id'] = sent_message.message_id
+            
         except Exception as e:
-            await update.message.reply_text(f"Произошла ошибка при добавлении позиции: {str(e)}")
+            print(e)
+            context.user_data['state'] = ADDING_ITEMS
+            
+            last_message = await update.message.reply_text(f"Пожалуйста добавьте товар в соответствии с шаблоном")
+            context.user_data['last_message_id'] =  last_message.message_id
+            
+            
             
     elif context.user_data.get('state') == START:
         
-        await update.message.reply_text('Пожалуйста, нажмите на кнопку "Новый Заказ" 🙏')
+        sent_message = await update.message.reply_text('Пожалуйста, нажмите на кнопку "Новый Заказ" 🙏')
+        
+        context.user_data['last_message_id'] = sent_message.message_id
         
     elif context.user_data.get('state') == CHOOSING_NEXT:
         
-        await update.message.reply_text('Пожалуйста, выберите одно из предложенных действий 🙏')
+        sent_message = await update.message.reply_text('Пожалуйста, выберите одно из предложенных действий 🙏')
         
-    # Обработка измененного названия товара
+        context.user_data['last_message_id'] = sent_message.message_id
+        
     elif context.user_data.get('state') == EDITING_ITEMS:
+        
+        if context.user_data['edit_action'] == 'edit_name':
             
-        await update.message.reply_text('Пожалуйста, выберите данные для изменения или нажмите "Готово" ')
+            await ItemEdition.edit_name_handler(update, context)
+            
+        elif context.user_data['edit_action'] == 'edit_qty':
+            
+            await ItemEdition.edit_qty_handler(update, context)
+            
+        elif context.user_data['edit_action'] == 'edit_price':
+            
+            await ItemEdition.edit_price_handler(update, context)
+            
+        else:
+            
+            last_message = await update.message.reply_text('Пожалуйста, выберите данные для изменения или нажмите "Готово" ')
+            
+            context.user_data['last_message_id'] = last_message.message_id
+            
         
     else:
                 
