@@ -1,6 +1,9 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
+import re
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CallbackContext
+from receipt_creator import PdfCreator
+from datetime import datetime
 
     
 def is_float(value):
@@ -24,20 +27,27 @@ class NewOrderHandler:
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # # Print the specific message ID from which to start deletion
-        # start_message_id = context.user_data.get('edit_message_id')
+        # Print the specific message ID from which to start deletion
+        start_message_id = context.user_data.get('edit_message_id')
         
-        # # Get the last known message ID
-        # last_message_id = context.user_data.get('last_message_id')
+        # Get the last known message ID
+        last_message_id = context.user_data.get('last_message_id')
         
-        # chat_id = update.callback_query.message.chat.id
+        chat_id = update.callback_query.message.chat.id
         
-        # if start_message_id and last_message_id:
+        if start_message_id and last_message_id:
+            for i in range(start_message_id, last_message_id + 1):
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=i)
+                except Exception as e:
+                    pass
         
-        #     for i in range(int(start_message_id+1), int(last_message_id)+1):
-        #         await context.bot.delete_message(chat_id=chat_id, message_id=i)
+        else:
+            
+            await context.bot.delete_message(chat_id=chat_id, message_id=start_message_id)
         
-        start_messge = await query.edit_message_text(
+        # Send a new message instead of editing the existing one
+        start_message = await update.callback_query.message.reply_text(
             "Введите данные о позиции в формате:\n"
             "Товар, Кол-во, Цена,\n"
             "Например:\n"
@@ -45,7 +55,11 @@ class NewOrderHandler:
             reply_markup=reply_markup
         )
         
-        context.user_data['edit_message_id'] = start_messge.message_id
+        
+        # await update.callback_query.delete_message(id=int(start_message.message_id)-1)
+        
+        context.user_data['edit_message_id'] = start_message.message_id
+        context.user_data['last_message_id'] = start_message.message_id  # Update last message ID as well
         
 class AddNextItemHandler:
     
@@ -67,16 +81,17 @@ class AddNextItemHandler:
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
         
 
-        await query.edit_message_text(
+        start_message = await query.edit_message_text(
             "Позиция Успешно Добавлена ✅\n\n"
             "Введите данные о следующей позиции в формате:\n"
             "Nº, Товар, Кол-во, Ед., Цена, Сумма\n"
             "Например:\n"
-            "1, Asus ROG Strix, 1, Шт., 1200.00, 1200.00\n"
+            "Asus ROG Strix, 1, 1200.00\n",
         )
         
-        for i in range(int(context.user_data['edit_message_id']), int(update.callback_query.message.message_id)):
-            print(i)
+        context.user_data['edit_message_id'] = start_message.message_id
+        context.user_data['last_message_id'] = None
+        
         
 class FinishReceiptHandler:
     
@@ -115,23 +130,95 @@ class FinishReceiptHandler:
         order_summary += f"\nВсего: {total_amount:.2f} ₽\nСкидка: {discount:.2f} ₽\nИтого: {final_total:.2f} ₽"
         
         keyboard = [
-            [InlineKeyboardButton("Сформировать PDF 📑", callback_data='create_pdf')],
+            [InlineKeyboardButton("Сформировать PDF 📑", callback_data='pre_create_pdf')],
             [InlineKeyboardButton("Отменить заказ ❌", callback_data='cancel_order')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.callback_query.edit_message_text(order_summary, reply_markup=reply_markup)
+        start_message = await update.callback_query.edit_message_text(order_summary, reply_markup=reply_markup)
         
-        context.user_data['edit_message_id'] = None
+        context.user_data['edit_message_id'] = start_message.message_id
         context.user_data['last_message_id'] = None
+        
+    @staticmethod
+    async def get_credentials(context: CallbackContext, update: Update, WRITING_CREDENTIALS):
+        
+        chat_id = update.callback_query.message.chat.id
+        
+        await context.bot.delete_message(chat_id=chat_id, message_id=context.user_data['edit_message_id'])
+        
+        context.user_data['state'] = WRITING_CREDENTIALS
+        
+        start_message = await update.callback_query.message.reply_text(
+            "Введите финальные данные о заказе в формате:\n"
+            "Nº Документа, Почта Покупателя\n"
+            "Например:\n"
+            "00086, johndoe@example.com",
+        )
+        
+        context.user_data['edit_message_id'] = start_message.message_id
+        context.user_data['last_message_id'] = None
+        
+        
+    @staticmethod
+    async def get_credentials_handler(update: Update, context: CallbackContext) -> None:
+
+        if update.callback_query:
+            chat_id = update.callback_query.message.chat.id
+            start_message_id = context.user_data.get('edit_message_id')
+        else:
+            chat_id = update.message.chat.id
+
+        # Get the last known message ID
+        last_message_id = update.message.message_id
+        
+        # Extract the text
+        user_input = update.message.text.strip()
+        
+        # Regular expression for validating the format
+        pattern = r'^\d+, [a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        
+        # Validate the input
+        if re.match(pattern, user_input):
+            await update.message.reply_text("Данные приняты!")
+            
+            items = context.user_data['items']
+            
+            # Get the current date
+            current_date = datetime.now()
+
+            # Format the date as DD.MM.YY
+            formatted_date = current_date.strftime("%d.%m.%y")
+            
+            pdf_receipt = PdfCreator.create_pdf(f'receipt-{update.message.text.split(',')[0]}.pdf', items, update.message.text.split(',')[0], formatted_date)
+            
+            context.user_data['receipt-path'] = f'./receipt-{update.message.text.split(',')[0]}.pdf'
+            
+            # Send the PDF file
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=open(context.user_data['receipt-path'], 'rb'),
+                filename=f'receipt-{user_input.split(",")[0].strip()}.pdf',
+                caption="Ваш квитанция готова."
+            )
+            
+            keyboard = [
+                [InlineKeyboardButton("Отменить заказ ❌", callback_data='cancel_order')],
+                [InlineKeyboardButton("Отправить чек ✅", callback_data='send_receipt')]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
+        
+        # Save the last message ID
+        context.user_data['last_message_id'] = last_message_id
             
             
 class CancelOrderHandler:
     
     @staticmethod
-    async def return_to_main_menu(update: Update, context: CallbackContext, keyboard) -> None:
+    async def return_to_main_menu(update: Update, context: CallbackContext, keyboard, START) -> None:
 
-        query = update.callback_query
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         # Print the specific message ID from which to start deletion
@@ -146,16 +233,19 @@ class CancelOrderHandler:
         
         if start_message_id and last_message_id:
         
-            for i in range(int(start_message_id+1), int(last_message_id)+1):
+            for i in range(int(start_message_id), int(last_message_id)+1):
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
         
-        await query.edit_message_text(
-            "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
+        start_message = await context.bot.send_message(
+            chat_id=chat_id,
+            text="Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
             reply_markup=reply_markup
         )
         
-        context.user_data['edit_message_id'] = None
+        context.user_data['edit_message_id'] = start_message.message_id
         context.user_data['last_message_id'] = None
+        
+        context.user_data['state'] = START
         
 class CheckReceiptHandler:
     
@@ -328,6 +418,15 @@ class ItemEdition:
         
         # Get the new name from the user's message
         new_name = update.message.text
+        
+        start_message_id = context.user_data.get('edit_message_id')
+        
+        # Get the last known message ID
+        last_message_id = update.message.message_id
+        
+        print(start_message_id, last_message_id)
+        
+        chat_id = update.message.chat_id
 
         # Find the item to update in context.user_data['items']
         items = context.user_data.get('items', [])
@@ -350,9 +449,8 @@ class ItemEdition:
         
         # Удаление сообщения через 1-2 секунды
         await asyncio.sleep(1)
-        await context.bot.delete_message(chat_id=update.message.chat_id, message_id=update.message.message_id)
-        await context.bot.delete_message(chat_id=update.message.chat_id, message_id=int(update.message.message_id)-1)
-        await context.bot.delete_message(chat_id=update.message.chat_id, message_id=int(update.message.message_id)-2)
+        for i in range(int(start_message_id)-2, int(last_message_id)+1):
+            await context.bot.delete_message(chat_id=chat_id, message_id=i)
         
         # Создаем клавиатуру с кнопками
         keyboard = [
@@ -423,7 +521,7 @@ class ItemEdition:
             # Удаление сообщения через 1-2 секунды
             await asyncio.sleep(1)
             
-            for i in range(int(context.user_data['edit_message_id']), int(update.message.message_id)+1):
+            for i in range(int(context.user_data['edit_message_id'])-2, int(update.message.message_id)+1):
                 await context.bot.delete_message(chat_id=update.message.chat_id, message_id=i)
             
             # Создаем клавиатуру с кнопками
@@ -497,7 +595,7 @@ class ItemEdition:
             
             # Удаление сообщения через 1-2 секунды
             await asyncio.sleep(1)
-            for i in range(int(context.user_data['edit_message_id']), int(update.message.message_id)+1):
+            for i in range(int(context.user_data['edit_message_id'])-2, int(update.message.message_id)+1):
                 await context.bot.delete_message(chat_id=update.message.chat_id, message_id=i)
             
             # Создаем клавиатуру с кнопками
@@ -515,10 +613,6 @@ class ItemEdition:
                 message_text,
                 reply_markup=reply_markup
             )
-
-            # Clear the edit action state
-            context.user_data['edit_action'] = None
-            context.user_data['edit_item_no'] = None
             
         else:
             

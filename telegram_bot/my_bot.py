@@ -1,9 +1,9 @@
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CallbackContext
 from button_handlers import *
-import asyncio
 from logger import LoggerConfig
+from receipt_creator import PdfCreator
+from datetime import datetime
 
 # Instantiate LoggerConfig to configure logging
 logger_config = LoggerConfig()
@@ -15,7 +15,7 @@ logger.warning('This is a warning message')
 logger.error('This is an error message')
 
 # Define constants for command states
-START, ADDING_ITEMS, CHOOSING_NEXT, EDITING_ITEMS, FINISHED = range(5)
+START, ADDING_ITEMS, CHOOSING_NEXT, EDITING_ITEMS, PRE_FINISHED, WRITING_CREDENTIALS, FINISHED = range(7)
 
 # Inline keyboard buttons
 keyboard = [
@@ -105,19 +105,35 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     elif query.data == 'finish_receipt':
         
         await FinishReceiptHandler.finish_receipt(context, update, ADDING_ITEMS, FINISHED)
+        
+    elif query.data == 'pre_create_pdf':
+        
+        await FinishReceiptHandler.get_credentials(context, update, WRITING_CREDENTIALS)
+        
+    elif query.data == 'create_pdf':
+        
+        items = context.user_data['items']
+        document_number = context.user_data['document_number']
+        current_date_formatted = context.user_data['current_date_formatted']
+        
+        PdfCreator.create_pdf('filename', items, document_number, current_date_formatted)
+        
+    elif query.data == 'send_receipt':
+        
+        pass
             
     elif query.data == 'cancel_order':
         
-        await CancelOrderHandler.return_to_main_menu(update, context, keyboard)
+        await CancelOrderHandler.return_to_main_menu(update, context, keyboard, START)
         
 async def handle_order(update: Update, context: CallbackContext) -> None:
     if context.user_data.get('state') == ADDING_ITEMS:
         
-        context.user_data['state'] = CHOOSING_NEXT
-        
         try:
             
             parts = update.message.text.split(', ')
+            context.user_data['last_message_id'] = update.message.message_id
+            
             index = len(context.user_data.get('items', [])) + 1
             item = {
                 "Nº": index,
@@ -125,7 +141,7 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
                 "Кол-во": int(parts[1]),
                 "Ед.": 'Шт.',
                 "Цена": float(parts[2]),
-                "Сумма": float(parts[1])*float(parts[2])
+                "Сумма": float(parts[1]) * float(parts[2])
             }
             context.user_data['items'].append(item)
             
@@ -153,20 +169,37 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             
             # Send the message and capture the Message object
             sent_message = await update.message.reply_text(
-            message_text,
-            reply_markup=reply_markup
+                message_text,
+                reply_markup=reply_markup
             )
+            
+            start_message_id = context.user_data.get('edit_message_id')
+            last_message_id = context.user_data.get('last_message_id')
+            
+            chat_id = update.message.chat_id
+            
+            print(start_message_id, last_message_id)
+            
+            for i in range(int(start_message_id), int(last_message_id)+1):
+                await context.bot.delete_message(chat_id=chat_id, message_id=i)
+            
+            logger.info(f'Item added message ID: {sent_message.message_id}')
             
             context.user_data['edit_message_id'] = sent_message.message_id
             
         except Exception as e:
-            print(e)
+            
+            print(e) 
+            
             context.user_data['state'] = ADDING_ITEMS
             
-            last_message = await update.message.reply_text(f"Пожалуйста добавьте товар в соответствии с шаблоном")
-            context.user_data['last_message_id'] =  last_message.message_id
+            last_message = await update.message.reply_text("Пожалуйста добавьте товар в соответствии с шаблоном")
             
+            logger.info(f"Error message ID: {last_message.message_id}")
             
+            context.user_data['last_message_id'] = last_message.message_id
+        
+        context.user_data['state'] = CHOOSING_NEXT
             
     elif context.user_data.get('state') == START:
         
@@ -200,6 +233,16 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             
             context.user_data['last_message_id'] = last_message.message_id
             
+    elif context.user_data.get('state') == FINISHED:
+        
+        sent_message = await update.message.reply_text('Пожалуйста, выберите одно из предложенных действий 🙏')
+        
+        context.user_data['last_message_id'] = sent_message.message_id        
+        
+        
+    elif context.user_data.get('state') == WRITING_CREDENTIALS:
+        
+        await FinishReceiptHandler.get_credentials_handler(update, context)
         
     else:
                 
