@@ -4,6 +4,7 @@ from button_handlers import *
 from logger import LoggerConfig
 from receipt_creator import PdfCreator
 from datetime import datetime
+from email_sender import EmailSender
 
 # Instantiate LoggerConfig to configure logging
 logger_config = LoggerConfig()
@@ -23,6 +24,8 @@ keyboard = [
 ]
 
 async def start(update: Update, context: CallbackContext) -> None:
+    context.user_data.clear()
+    
     context.user_data['items'] = []
     context.user_data['state'] = START
     keyboard = [
@@ -120,7 +123,24 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
         
     elif query.data == 'send_receipt':
         
-        pass
+        email_sender = EmailSender()
+        if await email_sender.send_email(to_address=context.user_data['customer-email'], order_number=context.user_data['order-number'],
+                                    items=context.user_data['items'], total_amount=context.user_data['total_amount'], discount=0, final_total=context.user_data['total_amount'], file_path=context.user_data['receipt-path']):
+            
+            await query.message.reply_text(
+                'Письмо с чеком успешно отправлено покупателю'
+            )
+            
+            await query.message.reply_text(
+                'Для оформления нового заказа нажмите /start'
+            )
+            
+        else:
+            
+            await query.message.reply_text(
+                'Произошла ошибка при отправке письма. Попробуйте перезапустить бота или обратитесь к администратору.'
+            )
+            
             
     elif query.data == 'cancel_order':
         
@@ -178,24 +198,16 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             
             chat_id = update.message.chat_id
             
-            print(start_message_id, last_message_id)
-            
             for i in range(int(start_message_id), int(last_message_id)+1):
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
-            
-            logger.info(f'Item added message ID: {sent_message.message_id}')
             
             context.user_data['edit_message_id'] = sent_message.message_id
             
         except Exception as e:
             
-            print(e) 
-            
             context.user_data['state'] = ADDING_ITEMS
             
             last_message = await update.message.reply_text("Пожалуйста добавьте товар в соответствии с шаблоном")
-            
-            logger.info(f"Error message ID: {last_message.message_id}")
             
             context.user_data['last_message_id'] = last_message.message_id
         

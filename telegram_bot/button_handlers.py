@@ -1,7 +1,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 import re
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CallbackContext
+from telegram.ext import CallbackContext
 from receipt_creator import PdfCreator
 from datetime import datetime
 
@@ -30,21 +30,9 @@ class NewOrderHandler:
         # Print the specific message ID from which to start deletion
         start_message_id = context.user_data.get('edit_message_id')
         
-        # Get the last known message ID
-        last_message_id = context.user_data.get('last_message_id')
-        
         chat_id = update.callback_query.message.chat.id
         
-        if start_message_id and last_message_id:
-            for i in range(start_message_id, last_message_id + 1):
-                try:
-                    await context.bot.delete_message(chat_id=chat_id, message_id=i)
-                except Exception as e:
-                    pass
-        
-        else:
-            
-            await context.bot.delete_message(chat_id=chat_id, message_id=start_message_id)
+        await context.bot.delete_message(chat_id=chat_id, message_id=start_message_id)
         
         # Send a new message instead of editing the existing one
         start_message = await update.callback_query.message.reply_text(
@@ -54,9 +42,6 @@ class NewOrderHandler:
             "Asus ROG Strix, 1, 1200.00\n",
             reply_markup=reply_markup
         )
-        
-        
-        # await update.callback_query.delete_message(id=int(start_message.message_id)-1)
         
         context.user_data['edit_message_id'] = start_message.message_id
         context.user_data['last_message_id'] = start_message.message_id  # Update last message ID as well
@@ -118,11 +103,9 @@ class FinishReceiptHandler:
             return
 
         total_amount = sum(item['Сумма'] for item in items)
+        context.user_data['total_amount'] = total_amount
         discount = 0.00  # Пример фиксированной скидки
         final_total = total_amount - discount
-
-        # Создание PDF должно происходить здесь
-        # ReceiptCreator.create_pdf("check113.pdf", items, total_amount, discount, final_total)
 
         order_summary = "Чек создан. Ваш заказ:\n\n"
         for item in items:
@@ -135,7 +118,7 @@ class FinishReceiptHandler:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        start_message = await update.callback_query.edit_message_text(order_summary, reply_markup=reply_markup)
+        start_message = await update.callback_query.edit_message_text(order_summary, reply_markup=reply_markup) 
         
         context.user_data['edit_message_id'] = start_message.message_id
         context.user_data['last_message_id'] = None
@@ -145,7 +128,15 @@ class FinishReceiptHandler:
         
         chat_id = update.callback_query.message.chat.id
         
-        await context.bot.delete_message(chat_id=chat_id, message_id=context.user_data['edit_message_id'])
+        if context.user_data['last_message_id']:
+        
+            for i in range(int(context.user_data['edit_message_id']), int(context.user_data['last_message_id'])+1):
+                await context.bot.delete_message(chat_id=chat_id, message_id=i)
+                
+        else:
+            
+            await context.bot.delete_message(chat_id=chat_id, message_id=context.user_data['edit_message_id'])
+            
         
         context.user_data['state'] = WRITING_CREDENTIALS
         
@@ -165,7 +156,6 @@ class FinishReceiptHandler:
 
         if update.callback_query:
             chat_id = update.callback_query.message.chat.id
-            start_message_id = context.user_data.get('edit_message_id')
         else:
             chat_id = update.message.chat.id
 
@@ -180,6 +170,12 @@ class FinishReceiptHandler:
         
         # Validate the input
         if re.match(pattern, user_input):
+            
+            if last_message_id:
+            
+                for i in range(int(context.user_data['edit_message_id']), int(last_message_id)+1):
+                    await context.bot.delete_message(chat_id=chat_id, message_id=i)
+            
             await update.message.reply_text("Данные приняты!")
             
             items = context.user_data['items']
@@ -193,6 +189,8 @@ class FinishReceiptHandler:
             pdf_receipt = PdfCreator.create_pdf(f'receipt-{update.message.text.split(',')[0]}.pdf', items, update.message.text.split(',')[0], formatted_date)
             
             context.user_data['receipt-path'] = f'./receipt-{update.message.text.split(',')[0]}.pdf'
+            context.user_data['customer-email'] = update.message.text.split(',')[1]
+            context.user_data['order-number'] = update.message.text.split(',')[0]
             
             # Send the PDF file
             await context.bot.send_document(
@@ -210,6 +208,14 @@ class FinishReceiptHandler:
             
             await update.message.reply_text("Выберите действие:", reply_markup=reply_markup)
         
+        else:
+            
+            last_message = await update.message.reply_text(
+                "Пожалуйста, введите данные в соответствии с форматом"
+            )
+            
+            context.user_data['last_message_id'] = last_message.message_id
+                    
         # Save the last message ID
         context.user_data['last_message_id'] = last_message_id
             
@@ -226,8 +232,6 @@ class CancelOrderHandler:
         
         # Get the last known message ID
         last_message_id = context.user_data.get('last_message_id')
-        
-        print(start_message_id, last_message_id)
         
         chat_id = update.callback_query.message.chat.id
         
@@ -264,13 +268,10 @@ class CheckReceiptHandler:
         # Get the last known message ID
         last_message_id = context.user_data.get('last_message_id')
         
-        print(start_message_id, last_message_id)
-        
         if start_message_id and last_message_id:
             chat_id = update.callback_query.message.chat_id
             
             for i in range(int(start_message_id)+1, int(last_message_id)+1):
-                print(i)
                 await context.bot.delete_message(chat_id=chat_id, message_id=i)
         
         if not items:
@@ -317,7 +318,6 @@ class CheckReceiptHandler:
                 chat_id = update.callback_query.message.chat_id
                 
                 for i in range(int(start_message_id), int(last_message_id)+1):
-                    print(i)
                     await context.bot.delete_message(chat_id=chat_id, message_id=i)
                 
                 context.user_data['state'] = CHOOSING_NEXT
@@ -423,8 +423,6 @@ class ItemEdition:
         
         # Get the last known message ID
         last_message_id = update.message.message_id
-        
-        print(start_message_id, last_message_id)
         
         chat_id = update.message.chat_id
 
