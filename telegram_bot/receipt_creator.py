@@ -161,11 +161,9 @@ class PdfCreator:
             ]
         ]
 
-        # Ширина текстовой области
         width = letter[0] - 2 * 0.5 * inch
 
-        # Распечатываем условия на новой странице
-        line_height = 9  # Интервал между блоками условий
+        line_height = 9
 
         for block in terms_blocks:
             for line in block:
@@ -187,11 +185,10 @@ class PdfCreator:
                     c.drawString(0.5 * inch, y_start - 1.1 * inch, wrapped_line)
                     y_start -= line_height
 
-                y_start -= line_height  # Добавляем пробел между блоками условий
+                y_start -= line_height 
 
-            y_start -= line_height  # Добавляем большой пробел после каждого пункта
+            y_start -= line_height 
 
-        # Сохраняем и закрываем PDF
         c.showPage()
         c.save()
  

@@ -23,7 +23,6 @@ class EmailSender:
         body = self.generate_html_body(order_number, items, total_amount, discount, final_total, to_address)
         msg.attach(MIMEText(body, 'html'))
 
-        # Attach the file
         with open(file_path, "rb") as attachment:
             part = MIMEBase("application", "octet-stream")
             part.set_payload(attachment.read())

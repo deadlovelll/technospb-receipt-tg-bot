@@ -1,24 +1,19 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, CallbackQueryHandler, filters, CallbackContext
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters, CallbackContext
 from button_handlers import *
 from logger import LoggerConfig
 from receipt_creator import PdfCreator
-from datetime import datetime
 from email_sender import EmailSender
 
-# Instantiate LoggerConfig to configure logging
 logger_config = LoggerConfig()
 logger = logger_config.get_logger()
 
-# Example usage of the logger
 logger.info('This is an informational message')
 logger.warning('This is a warning message')
 logger.error('This is an error message')
 
-# Define constants for command states
 START, ADDING_ITEMS, CHOOSING_NEXT, EDITING_ITEMS, PRE_FINISHED, WRITING_CREDENTIALS, FINISHED = range(7)
 
-# Inline keyboard buttons
 keyboard = [
     [InlineKeyboardButton("Новый заказ", callback_data='new_order')],
 ]
@@ -43,12 +38,9 @@ async def start(update: Update, context: CallbackContext) -> None:
         logger.warning("Пустое обновление в функции start")
         
 async def restart(update: Update, context: CallbackContext) -> None:
-    # Clear user_data to reset bot state for this user
     context.user_data.clear()
     
-    # Determine the message to edit based on update type
     if update.callback_query:
-        # If the update is a callback query, edit the message associated with it
         query = update.callback_query
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -58,7 +50,6 @@ async def restart(update: Update, context: CallbackContext) -> None:
         )
         
     elif update.message:
-        # If the update is a regular message, reply with the restart message and keyboard
         await update.message.reply_text(
             "Привет! Я помогу тебе создать PDF с чеком. Выберите действие:",
             reply_markup=InlineKeyboardMarkup(keyboard)
@@ -165,7 +156,6 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
             }
             context.user_data['items'].append(item)
             
-            # Создаем текст сообщения с информацией о добавленной позиции
             message_text = (
                 f"Позиция добавлена:\n"
                 f"Nº: {item['Nº']}\n"
@@ -177,7 +167,6 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
                 "Чтобы добавить следующую позицию, нажмите на соответствующую кнопку."
             )
             
-            # Создаем клавиатуру с кнопками
             keyboard = [
                 [InlineKeyboardButton("Следующая Позиция ⏭️", callback_data='add_next_item')],
                 [InlineKeyboardButton("Редактировать Позицию 📝", callback_data='edit_item')],
@@ -186,8 +175,7 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
                 [InlineKeyboardButton("Отменить заказ ❌", callback_data='cancel_order')]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            # Send the message and capture the Message object
+
             sent_message = await update.message.reply_text(
                 message_text,
                 reply_markup=reply_markup
@@ -261,6 +249,7 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
         await update.message.reply_text("Используйте команду /start для начала добавления позиций.")
 
 if __name__ == '__main__':
+    
     application = ApplicationBuilder().token("7398191583:AAF2xkBbwcH0hsrBHsF0iEDgMt703u0ocO4").build()
 
     start_handler = CommandHandler('start', start)
