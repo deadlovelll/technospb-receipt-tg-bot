@@ -4,14 +4,23 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+SENDING_ADDRESS = os.getenv('SENDING_ADDRESS')
+SENDING_ADDRESS_SMTP = os.getenv('SENDING_ADDRESS_SMTP')
+SENDING_ADDRESS_SMTP_PORT = os.getenv('SENDING_ADDRESS_SMTP_PORT')
+SENDING_ADDRESS_REMOTE_PASSWORD = os.getenv('SENDING_ADDRESS_REMOTE_PASSWORD')
 
 class EmailSender:
     
     def __init__(self) -> None:
-        self.email_sender = 'technospb-noreply@mail.ru'
-        self.smtp_server = 'smtp.mail.ru'
-        self.smtp_port = 465 
-        self.email_password = 'A44cX5yvuhcN7ZREr0yF'
+        self.email_sender = SENDING_ADDRESS
+        self.smtp_server = SENDING_ADDRESS_SMTP
+        self.smtp_port = SENDING_ADDRESS_SMTP_PORT
+        self.email_password = SENDING_ADDRESS_REMOTE_PASSWORD
         
     async def send_email(self, to_address, order_number, items, total_amount, discount, final_total, file_path) -> bool:
         

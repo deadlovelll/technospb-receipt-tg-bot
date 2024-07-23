@@ -4,9 +4,15 @@ from button_handlers import *
 from logger import LoggerConfig
 from receipt_creator import PdfCreator
 from email_sender import EmailSender
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 logger_config = LoggerConfig()
 logger = logger_config.get_logger()
+
+TELEGRAM_API_KEY = os.getenv('TELEGRAM_API_TOKEN')
 
 logger.info('This is an informational message')
 logger.warning('This is a warning message')
@@ -250,7 +256,7 @@ async def handle_order(update: Update, context: CallbackContext) -> None:
 
 if __name__ == '__main__':
     
-    application = ApplicationBuilder().token("7398191583:AAF2xkBbwcH0hsrBHsF0iEDgMt703u0ocO4").build()
+    application = ApplicationBuilder().token(TELEGRAM_API_KEY).build()
 
     start_handler = CommandHandler('start', start)
     restart_handler = CommandHandler('restart', restart)
